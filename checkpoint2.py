@@ -28,7 +28,7 @@ while True:
    show_img(hsv_img)
 
    key = cv2.waitKey(10)
-   if key == ord('q') or (cv2.getWindowProperty('Image Window', cv2.WND_PROP_VISIBLE) < 1):
+   if key == ord('q'):
       break
 
 capture.release()

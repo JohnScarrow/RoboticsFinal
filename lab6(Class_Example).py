@@ -6,11 +6,8 @@ def show_img(img_to_show):
    
    # set exit condition
    key = ord('r') # anything other than q
-   while key!= ord('q'):
+   while key != ord('q'):
       key = cv2.waitKey(10)
-      # break out of the loop if you click the x instead of typing q
-      if(cv2.getWindowProperty('Image Window', cv2.WND_PROP_VISIBLE) < 1):
-         break
    cv2.destroyAllWindows()
    
 # read in image

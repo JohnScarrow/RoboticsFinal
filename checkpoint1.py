@@ -12,8 +12,6 @@ def show_img(img_to_show):
    key = ord('r')
    while key != ord('q'):
       key = cv2.waitKey(10)
-      if(cv2.getWindowProperty('Image Window', cv2.WND_PROP_VISIBLE) < 1):
-         break
    cv2.destroyAllWindows()
 
 # read in the jellyfish image

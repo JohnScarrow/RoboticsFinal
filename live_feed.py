@@ -5,6 +5,7 @@ def show_img(img_to_show):
    cv2.imshow('Image Window', img_to_show)
    
 capture = cv2.VideoCapture(0)
+cv2.namedWindow('Image Window')
 
 key = ord('r') # anything other than q
 while True:
@@ -18,7 +19,7 @@ while True:
 
    key = cv2.waitKey(10)
    # set exit condition
-   if key== ord('q') or (cv2.getWindowProperty('Image Window', cv2.WND_PROP_VISIBLE) < 1):
+   if key == ord('q'):
       break
    
    
