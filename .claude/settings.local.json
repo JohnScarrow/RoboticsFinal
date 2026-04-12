@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python3 -c \"from megadetector.detection.run_detector import load_detector; print\\('import OK'\\)\")"
+    ]
+  }
+}
