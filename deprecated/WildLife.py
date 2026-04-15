@@ -1,4 +1,4 @@
-# WildLife.py — v1.0
+# WildLife.py — v1.1
 import cv2
 import sys
 import time
@@ -58,9 +58,15 @@ print('Models loaded. Starting webcam...')
 # -----------------------------------------------------------------------
 # Webcam setup
 # -----------------------------------------------------------------------
+# Capture at 640x480 (~22 FPS) then upscale display to 1280x720.
+# MegaDetector uses relative bbox coords (0-1) so detection quality
+# is unaffected by capture resolution.
+CAPTURE_W, CAPTURE_H = 640, 480
+DISPLAY_W, DISPLAY_H = 1280, 720
+
 capture = cv2.VideoCapture(0)
-capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+capture.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURE_W)
+capture.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURE_H)
 cv2.namedWindow('MegaDetector - Wildlife Detection')
 
 frame_count = 0
@@ -86,7 +92,9 @@ while True:
     if not ret:
         sys.exit()
 
-    h, w = frame.shape[:2]
+    # Upscale to display resolution — detection runs on the small frame
+    frame = cv2.resize(frame, (DISPLAY_W, DISPLAY_H), interpolation=cv2.INTER_LINEAR)
+    h, w = DISPLAY_H, DISPLAY_W
 
     # -------------------------------------------------------------------
     # MegaDetector phase - runs every FRAME_SKIP frames
