@@ -1,11 +1,11 @@
-# train_wildlife.py — v2.0
+# train_wildlife.py — v2.1
 #
 # Builds two custom wildlife detection models for northern Idaho forest roads:
 #   - yolo11s: full accuracy model for laptop (RTX 3050 Ti / 5070 Ti)
 #   - yolo11n: lightweight model exported to ONNX for Raspberry Pi
 #
 # Pipeline:
-#   1. Download all Roboflow datasets (deer, elk, turkey, moose)
+#   1. Download merged Roboflow dataset (deer, elk, turkey, moose) via direct URL
 #   2. Download wildlife subset from LILA.science (Caltech Camera Traps)
 #   3. Convert LILA annotations from COCO to YOLO format
 #   4. Merge all datasets into one unified training set
@@ -14,37 +14,26 @@
 #
 # Run on the desktop (RTX 5070 Ti) for fastest training (~30-45 min).
 # Also works on the laptop (RTX 3050 Ti) — will use a smaller batch (~2-3 hrs).
-#
-# Requires .env file with: ROBOFLOW_API_KEY=your_key_here
 
 import os
 import sys
 import json
 import shutil
 import random
+import zipfile
 import requests
 from pathlib import Path
 from tqdm import tqdm
-from dotenv import load_dotenv
-from roboflow import Roboflow
 from ultralytics import YOLO
 import torch
 
 # -----------------------------------------------------------------------
 # CONFIG
 # -----------------------------------------------------------------------
-load_dotenv()
 
-ROBOFLOW_API_KEY = os.getenv('ROBOFLOW_API_KEY', None)
-
-# All Roboflow datasets to download and merge
-# Format: (workspace, project, version)
-ROBOFLOW_DATASETS = [
-    ('autowildlife', 'deer-hqp4i-zdzgs', 1),
-    ('autowildlife', 'Elk',              1),
-    ('autowildlife', 'Turkey',           1),
-    ('autowildlife', 'moose',            1),
-]
+# Roboflow direct download URL — merged dataset (deer, elk, turkey, moose)
+# Get this from your Roboflow project: Export → Show download code → Raw URL
+ROBOFLOW_DOWNLOAD_URL = 'https://app.roboflow.com/ds/bj2r5cgnUd?key=peifzDxJIS'
 
 # Where to save everything
 DATASET_DIR  = Path('datasets/wildlife')
@@ -81,34 +70,40 @@ def get_batch_size(model_size='s'):
         return 8  if model_size == 's' else 16   # 3050 Ti laptop
 
 # -----------------------------------------------------------------------
-# Phase 1 — Download all Roboflow datasets
+# Phase 1 — Download Roboflow dataset via direct URL
 # -----------------------------------------------------------------------
 def download_roboflow():
-    print('\n--- Phase 1: Downloading Roboflow datasets ---')
+    print('\n--- Phase 1: Downloading Roboflow dataset ---')
 
-    api_key = ROBOFLOW_API_KEY
-    if not api_key:
-        api_key = input('Enter your Roboflow API key: ').strip()
-    if not api_key:
-        print('ERROR: Roboflow API key required. Get one at roboflow.com/settings/api')
+    out_dir  = ROBOFLOW_DIR / 'wildlife'
+    zip_path = ROBOFLOW_DIR / 'wildlife.zip'
+
+    # Skip if already downloaded
+    if (out_dir / 'data.yaml').exists():
+        print(f'  Already downloaded — skipping ({out_dir})')
+        return [out_dir]
+
+    ROBOFLOW_DIR.mkdir(parents=True, exist_ok=True)
+
+    print(f'Downloading from Roboflow...')
+    r = requests.get(ROBOFLOW_DOWNLOAD_URL, stream=True)
+    if r.status_code != 200:
+        print(f'ERROR: Download failed — HTTP {r.status_code}')
         sys.exit(1)
 
-    rf = Roboflow(api_key=api_key)
-    dataset_dirs = []
+    total = int(r.headers.get('content-length', 0))
+    with open(zip_path, 'wb') as f, tqdm(total=total, unit='B', unit_scale=True, desc='Downloading') as bar:
+        for chunk in r.iter_content(chunk_size=8192):
+            f.write(chunk)
+            bar.update(len(chunk))
 
-    for workspace, project, version in ROBOFLOW_DATASETS:
-        out_dir = ROBOFLOW_DIR / project
-        print(f'Downloading {workspace}/{project} v{version}...')
-        try:
-            proj    = rf.workspace(workspace).project(project)
-            dataset = proj.version(version).download('yolov8', location=str(out_dir))
-            dataset_dirs.append(out_dir)
-            print(f'  Saved to: {out_dir}')
-        except Exception as e:
-            print(f'  WARNING: Failed to download {project} — {e}')
+    print(f'Extracting...')
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        zf.extractall(out_dir)
+    zip_path.unlink()
 
-    print(f'Downloaded {len(dataset_dirs)}/{len(ROBOFLOW_DATASETS)} datasets')
-    return dataset_dirs
+    print(f'  Saved to: {out_dir}')
+    return [out_dir]
 
 # -----------------------------------------------------------------------
 # Phase 2 — Download LILA.science subset (Caltech Camera Traps)
@@ -218,14 +213,16 @@ def merge_datasets(roboflow_dirs, lila_images_dir, lila_labels_dir):
         (MERGED_DIR / 'labels' / split).mkdir(parents=True, exist_ok=True)
 
     # Copy all Roboflow datasets
+    # Roboflow zips use 'train' and 'valid' (not 'val') — map both to 'train'/'val'
+    split_map = {'train': 'train', 'valid': 'val', 'val': 'val'}
     for rf_dir in roboflow_dirs:
-        for split in ('train', 'val'):
+        for rf_split, merged_split in split_map.items():
             for sub in ('images', 'labels'):
-                src = rf_dir / split / sub
+                src = rf_dir / rf_split / sub
                 if src.exists():
                     for f in src.iterdir():
                         # Prefix filename with dataset name to avoid collisions
-                        dest = MERGED_DIR / sub / split / f'{rf_dir.name}_{f.name}'
+                        dest = MERGED_DIR / sub / merged_split / f'{rf_dir.name}_{f.name}'
                         shutil.copy(f, dest)
 
     # Split LILA 85% train / 15% val
