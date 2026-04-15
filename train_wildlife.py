@@ -335,8 +335,8 @@ def train_rpi(yaml_path, batch_size):
 # Main
 # -----------------------------------------------------------------------
 if __name__ == '__main__':
-    print('=== AutoWildLife Training Pipeline v2.0 ===')
-    print(f'Datasets    : {[p for _, p, _ in ROBOFLOW_DATASETS]}')
+    print('=== AutoWildLife Training Pipeline v2.1 ===')
+    print(f'Dataset URL : {ROBOFLOW_DOWNLOAD_URL}')
     print(f'Dataset dir : {DATASET_DIR.resolve()}')
     print(f'Output dir  : runs/wildlife/')
 
