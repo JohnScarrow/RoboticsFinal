@@ -1,16 +1,18 @@
-# train_wildlife.py — v2.1
+# train_wildlife.py — v2.2
 #
-# Builds two custom wildlife detection models for northern Idaho forest roads:
-#   - yolo11s: full accuracy model for laptop (RTX 3050 Ti / 5070 Ti)
-#   - yolo11n: lightweight model exported to ONNX for Raspberry Pi
+# Builds custom wildlife detection models for northern Idaho forest roads.
+#
+# Usage:
+#   python train_wildlife.py              — train both models (laptop + RPi)
+#   python train_wildlife.py --rpi-only   — train only yolo11n + ONNX export (Raspberry Pi)
 #
 # Pipeline:
 #   1. Download merged Roboflow dataset (deer, elk, turkey, moose) via direct URL
 #   2. Download wildlife subset from LILA.science (Caltech Camera Traps)
 #   3. Convert LILA annotations from COCO to YOLO format
 #   4. Merge all datasets into one unified training set
-#   5. Train YOLOv11s (laptop/desktop model)
-#   6. Train YOLOv11n and export to ONNX (Raspberry Pi model)
+#   5. Train YOLOv11s (laptop/desktop model)        — skipped with --rpi-only
+#   6. Train YOLOv11n and export to ONNX (RPi model)
 #
 # Run on the desktop (RTX 5070 Ti) for fastest training (~30-45 min).
 # Also works on the laptop (RTX 3050 Ti) — will use a smaller batch (~2-3 hrs).
@@ -18,6 +20,7 @@
 import os
 import sys
 import json
+import argparse
 import shutil
 import random
 import zipfile
@@ -335,30 +338,34 @@ def train_rpi(yaml_path, batch_size):
 # Main
 # -----------------------------------------------------------------------
 if __name__ == '__main__':
-    print('=== AutoWildLife Training Pipeline v2.1 ===')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--rpi-only', action='store_true',
+                        help='Skip yolo11s training — only train yolo11n and export ONNX for Raspberry Pi')
+    cli = parser.parse_args()
+
+    print('=== AutoWildLife Training Pipeline v2.2 ===')
+    print(f'Mode        : {"RPi only (yolo11n + ONNX)" if cli.rpi_only else "Full (yolo11s + yolo11n + ONNX)"}')
     print(f'Dataset URL : {ROBOFLOW_DOWNLOAD_URL}')
     print(f'Dataset dir : {DATASET_DIR.resolve()}')
     print(f'Output dir  : runs/wildlife/')
 
-    roboflow_dirs              = download_roboflow()
+    roboflow_dirs                        = download_roboflow()
     lila_images, lila_labels, lila_names = download_lila()
     merge_datasets(roboflow_dirs, lila_images, lila_labels)
-    yaml_path                  = write_data_yaml(roboflow_dirs, lila_names)
+    yaml_path                            = write_data_yaml(roboflow_dirs, lila_names)
 
-    batch_s = get_batch_size('s')
     batch_n = get_batch_size('n')
-
-    best_s            = train_full(yaml_path, batch_s)
     best_n, onnx_path = train_rpi(yaml_path, batch_n)
 
+    if not cli.rpi_only:
+        batch_s = get_batch_size('s')
+        best_s  = train_full(yaml_path, batch_s)
+        print(f'\nLaptop/desktop model : {best_s}')
+        print(f'  MODEL_PATH = "{best_s}"')
+
     print('\n=== Training complete ===')
-    print(f'Laptop/desktop model : {best_s}')
     print(f'Raspberry Pi model   : {onnx_path}')
     print()
-    print('To use in AutoWildLife.py:')
-    print(f'  MODEL_PATH = "{best_s}"')
-    print(f'  CUSTOM_MODEL_MODE = True')
-    print()
-    print('To use on Raspberry Pi:')
+    print('To use on Raspberry Pi (AutoWildLife.py):')
     print(f'  MODEL_PATH = "{onnx_path}"')
     print(f'  CUSTOM_MODEL_MODE = True')
