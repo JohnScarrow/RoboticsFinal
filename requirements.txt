@@ -1,0 +1,13 @@
+# AutoWildLife — Python dependencies
+# Install: pip install --user -r requirements.txt
+#
+# On Raspberry Pi, replace opencv-python with opencv-python-headless:
+#   pip install --user opencv-python-headless
+
+ultralytics>=8.4.37
+torch>=2.11.0
+torchvision>=0.26.0
+opencv-python>=4.11.0.86
+requests>=2.31.0
+tqdm>=4.67.3
+PyYAML>=6.0.1
