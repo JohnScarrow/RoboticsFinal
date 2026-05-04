@@ -14,11 +14,13 @@
 
 import argparse
 import time
+from datetime import datetime
 from pathlib import Path
 
 import cv2
 import numpy as np
 import onnxruntime as ort
+from picamera2 import Picamera2
 
 # -----------------------------------------------------------------------
 # CONFIG
@@ -140,9 +142,10 @@ def draw(frame, boxes, confidences, class_ids):
 # -----------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description='Wildlife detection — RPi5')
-    parser.add_argument('--source', default=None,    help='Image or video file (default: camera)')
-    parser.add_argument('--camera', type=int, default=0, help='Camera index (default: 0)')
-    parser.add_argument('--model',  default=str(MODEL_PATH), help='Path to ONNX model')
+    parser.add_argument('--source',   default=None,           help='Image or video file (default: camera)')
+    parser.add_argument('--camera',   type=int, default=0,    help='Camera index (default: 0)')
+    parser.add_argument('--model',    default=str(MODEL_PATH),help='Path to ONNX model')
+    parser.add_argument('--headless', action='store_true',    help='No window — print detections to terminal')
     args = parser.parse_args()
 
     # Load model
@@ -171,12 +174,24 @@ def main():
         src = args.camera
         is_image = False
 
-    cap = None if is_image else cv2.VideoCapture(src)
-    if cap is not None and not cap.isOpened():
-        print(f'ERROR: Could not open camera/video: {src}')
-        raise SystemExit(1)
+    if is_image:
+        cap = None
+        picam2 = None
+    elif args.source:
+        cap = cv2.VideoCapture(src)
+        picam2 = None
+        if not cap.isOpened():
+            print(f'ERROR: Could not open video: {src}')
+            raise SystemExit(1)
+    else:
+        cap = None
+        picam2 = Picamera2()
+        picam2.configure(picam2.create_preview_configuration(
+            main={"size": (INPUT_W, INPUT_H), "format": "BGR888"}
+        ))
+        picam2.start()
 
-    print('Running — press q to quit')
+    print('Running — press Ctrl+C to stop.' if args.headless else 'Running — press q to quit.')
     fps_counter, fps_start = 0, time.time()
     fps_display = 0.0
 
@@ -186,6 +201,8 @@ def main():
             if frame is None:
                 print(f'ERROR: Could not read image: {args.source}')
                 break
+        elif picam2:
+            frame = picam2.capture_array()
         else:
             ret, frame = cap.read()
             if not ret:
@@ -203,27 +220,36 @@ def main():
             outputs[0], scale, pad_w, pad_h, orig_w, orig_h
         )
 
-        frame = draw(frame, boxes, confidences, class_ids)
-
-        # FPS overlay
+        # FPS tracking
         fps_counter += 1
         if time.time() - fps_start >= 1.0:
             fps_display = fps_counter / (time.time() - fps_start)
             fps_counter, fps_start = 0, time.time()
 
-        cv2.putText(frame, f'{fps_display:.1f} FPS  |  {inference_ms:.0f} ms',
-                    (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        if args.headless:
+            ts = datetime.now().strftime('%H:%M:%S')
+            if boxes is not None and len(boxes):
+                for box, conf, cls_id in zip(boxes, confidences, class_ids):
+                    x1, y1, x2, y2 = box
+                    print(f'[{ts}] {CLASS_NAMES[cls_id]} {conf:.0%}  box=({x1},{y1},{x2},{y2})  {inference_ms:.0f}ms')
+            else:
+                print(f'[{ts}] no detection  {fps_display:.1f}FPS  {inference_ms:.0f}ms')
+        else:
+            frame = draw(frame, boxes, confidences, class_ids)
+            cv2.putText(frame, f'{fps_display:.1f} FPS  |  {inference_ms:.0f} ms',
+                        (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            cv2.imshow('AutoWildLife', frame)
 
-        cv2.imshow('AutoWildLife', frame)
-
-        if is_image:
-            cv2.waitKey(0)
-            break
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+            if is_image:
+                cv2.waitKey(0)
+                break
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
     if cap:
         cap.release()
+    if picam2:
+        picam2.stop()
     cv2.destroyAllWindows()
 
 
