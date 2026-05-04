@@ -24,7 +24,7 @@ from ultralytics import YOLO
 
 # --- Configuration ---
 DATA_YAML = "dataset/data.yaml"   # path to your data.yaml
-MODEL = "yolov8s.pt"              # starting weights (downloads if not present)
+MODEL = "premadePT/yolov8s.pt"    # starting weights (downloads if not present)
 EPOCHS = 100
 BATCH = 32
 IMG_SIZE = 640

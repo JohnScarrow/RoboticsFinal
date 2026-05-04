@@ -288,7 +288,7 @@ def train_full(yaml_path, batch_size):
     print('\n--- Phase 5: Training YOLOv11s (laptop/desktop model) ---')
     print(f'Epochs: {EPOCHS}  |  Batch: {batch_size}  |  Image size: {IMG_SIZE}')
 
-    model = YOLO('yolo11s.pt')
+    model = YOLO('premadePT/yolo11s.pt')
     model.train(
         data=str(yaml_path),
         epochs=EPOCHS,
@@ -311,7 +311,7 @@ def train_rpi(yaml_path, batch_size):
     print('\n--- Phase 6: Training YOLOv11n + ONNX export (Raspberry Pi model) ---')
     print(f'Epochs: {EPOCHS}  |  Batch: {batch_size}  |  Image size: {IMG_SIZE}')
 
-    model = YOLO('yolo11n.pt')
+    model = YOLO('premadePT/yolo11n.pt')
     model.train(
         data=str(yaml_path),
         epochs=EPOCHS,

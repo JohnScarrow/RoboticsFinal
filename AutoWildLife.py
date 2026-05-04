@@ -35,7 +35,7 @@ STREAM_PORT = args.port
 # -----------------------------------------------------------------------
 # Model config
 # -----------------------------------------------------------------------
-MODEL_PATH = 'yolo11s.pt'
+MODEL_PATH = 'premadePT/yolo11s.pt'
 
 CONFIDENCE_THRESHOLD = 0.4
 

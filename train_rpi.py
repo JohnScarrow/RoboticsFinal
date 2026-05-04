@@ -59,7 +59,7 @@ def train():
     batch = get_batch_size()
     print(f'\nTraining YOLOv11n — Epochs: {EPOCHS}  Batch: {batch}  Size: {IMG_W}×{IMG_H}')
 
-    model = YOLO('yolo11n.pt')
+    model = YOLO('premadePT/yolo11n.pt')
     model.train(
         data=str(DATA_YAML),
         epochs=EPOCHS,
