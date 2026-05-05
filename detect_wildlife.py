@@ -20,7 +20,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 import onnxruntime as ort
-from picamera2 import Picamera2
 
 # -----------------------------------------------------------------------
 # CONFIG
@@ -28,8 +27,8 @@ from picamera2 import Picamera2
 MODEL_PATH  = Path(__file__).parent / 'best_int8.onnx'
 CLASS_NAMES = ['0', 'Deer', 'Roe deer', 'deers', 'doe', 'elk', 'roedeer', 'waterdeer']
 
-CONF_THRESH = 0.35   # minimum confidence to show a detection
-IOU_THRESH  = 0.45   # NMS overlap threshold
+CONF_THRESH = 0.35
+IOU_THRESH  = 0.45
 
 # Model input size — must match what train_rpi.py used (864×480, 16:9)
 INPUT_W = 864
@@ -87,7 +86,7 @@ def postprocess(output, scale, pad_w, pad_h, orig_w, orig_h):
     boxes_raw  = preds[:, :4]
     scores_raw = preds[:, 4:]
 
-    class_ids  = np.argmax(scores_raw, axis=1)
+    class_ids   = np.argmax(scores_raw, axis=1)
     confidences = scores_raw[np.arange(len(scores_raw)), class_ids]
 
     mask = confidences >= CONF_THRESH
@@ -98,22 +97,14 @@ def postprocess(output, scale, pad_w, pad_h, orig_w, orig_h):
     if len(boxes_raw) == 0:
         return [], [], []
 
-    # cx,cy,w,h → x1,y1,x2,y2 (still in letterboxed input coords)
     cx, cy, bw, bh = boxes_raw[:, 0], boxes_raw[:, 1], boxes_raw[:, 2], boxes_raw[:, 3]
-    x1 = cx - bw / 2
-    y1 = cy - bh / 2
-    x2 = cx + bw / 2
-    y2 = cy + bh / 2
-
-    # Remove letterbox padding, undo scale → original frame coords
-    x1 = np.clip((x1 - pad_w) / scale, 0, orig_w)
-    y1 = np.clip((y1 - pad_h) / scale, 0, orig_h)
-    x2 = np.clip((x2 - pad_w) / scale, 0, orig_w)
-    y2 = np.clip((y2 - pad_h) / scale, 0, orig_h)
+    x1 = np.clip((cx - bw / 2 - pad_w) / scale, 0, orig_w)
+    y1 = np.clip((cy - bh / 2 - pad_h) / scale, 0, orig_h)
+    x2 = np.clip((cx + bw / 2 - pad_w) / scale, 0, orig_w)
+    y2 = np.clip((cy + bh / 2 - pad_h) / scale, 0, orig_h)
 
     boxes_xyxy = np.stack([x1, y1, x2, y2], axis=1).astype(int)
 
-    # NMS
     indices = cv2.dnn.NMSBoxes(
         boxes_xyxy.tolist(), confidences.tolist(), CONF_THRESH, IOU_THRESH
     )
@@ -135,7 +126,6 @@ def draw(frame, boxes, confidences, class_ids):
         cv2.rectangle(frame, (x1, y1 - th - 6), (x1 + tw + 4, y1), color, -1)
         cv2.putText(frame, label, (x1 + 2, y1 - 4),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, cv2.LINE_AA)
-    return frame
 
 # -----------------------------------------------------------------------
 # Main
@@ -148,7 +138,6 @@ def main():
     parser.add_argument('--headless', action='store_true',    help='No window — print detections to terminal')
     args = parser.parse_args()
 
-    # Load model
     model_path = Path(args.model)
     if not model_path.exists():
         print(f'ERROR: Model not found at {model_path}')
@@ -166,25 +155,47 @@ def main():
     input_name = session.get_inputs()[0].name
     print('Model loaded.')
 
-    # Open source
-    if args.source:
-        src = args.source
-        is_image = Path(src).suffix.lower() in {'.jpg', '.jpeg', '.png', '.bmp', '.webp'}
-    else:
-        src = args.camera
-        is_image = False
+    is_image = args.source and Path(args.source).suffix.lower() in {'.jpg', '.jpeg', '.png', '.bmp', '.webp'}
 
+    # --- Image mode: infer once and exit ---
     if is_image:
-        cap = None
-        picam2 = None
-    elif args.source:
-        cap = cv2.VideoCapture(src)
-        picam2 = None
+        frame = cv2.imread(args.source)
+        if frame is None:
+            print(f'ERROR: Could not read image: {args.source}')
+            raise SystemExit(1)
+        orig_h, orig_w = frame.shape[:2]
+        blob, scale, pad_w, pad_h = preprocess(frame)
+        t0 = time.time()
+        outputs = session.run(None, {input_name: blob})
+        inference_ms = (time.time() - t0) * 1000
+        boxes, confidences, class_ids = postprocess(outputs[0], scale, pad_w, pad_h, orig_w, orig_h)
+
+        if args.headless:
+            ts = datetime.now().strftime('%H:%M:%S')
+            if len(boxes):
+                for box, conf, cls_id in zip(boxes, confidences, class_ids):
+                    x1, y1, x2, y2 = box
+                    print(f'[{ts}] {CLASS_NAMES[cls_id]} {conf:.0%}  box=({x1},{y1},{x2},{y2})  {inference_ms:.0f}ms')
+            else:
+                print(f'[{ts}] no detection  {inference_ms:.0f}ms')
+        else:
+            draw(frame, boxes, confidences, class_ids)
+            cv2.putText(frame, f'{inference_ms:.0f} ms',
+                        (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            cv2.imshow('AutoWildLife', frame)
+            cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        return
+
+    # --- Video / camera mode ---
+    cap = picam2 = None
+    if args.source:
+        cap = cv2.VideoCapture(args.source)
         if not cap.isOpened():
-            print(f'ERROR: Could not open video: {src}')
+            print(f'ERROR: Could not open video: {args.source}')
             raise SystemExit(1)
     else:
-        cap = None
+        from picamera2 import Picamera2
         picam2 = Picamera2()
         picam2.configure(picam2.create_preview_configuration(
             main={"size": (INPUT_W, INPUT_H), "format": "BGR888"}
@@ -196,12 +207,7 @@ def main():
     fps_display = 0.0
 
     while True:
-        if is_image:
-            frame = cv2.imread(args.source)
-            if frame is None:
-                print(f'ERROR: Could not read image: {args.source}')
-                break
-        elif picam2:
+        if picam2:
             frame = picam2.capture_array()
         else:
             ret, frame = cap.read()
@@ -209,40 +215,31 @@ def main():
                 break
 
         orig_h, orig_w = frame.shape[:2]
-
-        # Inference
         blob, scale, pad_w, pad_h = preprocess(frame)
         t0 = time.time()
         outputs = session.run(None, {input_name: blob})
         inference_ms = (time.time() - t0) * 1000
+        boxes, confidences, class_ids = postprocess(outputs[0], scale, pad_w, pad_h, orig_w, orig_h)
 
-        boxes, confidences, class_ids = postprocess(
-            outputs[0], scale, pad_w, pad_h, orig_w, orig_h
-        )
-
-        # FPS tracking
         fps_counter += 1
-        if time.time() - fps_start >= 1.0:
-            fps_display = fps_counter / (time.time() - fps_start)
+        elapsed = time.time() - fps_start
+        if elapsed >= 1.0:
+            fps_display = fps_counter / elapsed
             fps_counter, fps_start = 0, time.time()
 
         if args.headless:
             ts = datetime.now().strftime('%H:%M:%S')
-            if boxes is not None and len(boxes):
+            if len(boxes):
                 for box, conf, cls_id in zip(boxes, confidences, class_ids):
                     x1, y1, x2, y2 = box
-                    print(f'[{ts}] {CLASS_NAMES[cls_id]} {conf:.0%}  box=({x1},{y1},{x2},{y2})  {inference_ms:.0f}ms')
+                    print(f'[{ts}] {CLASS_NAMES[cls_id]} {conf:.0%}  box=({x1},{y1},{x2},{y2})  {fps_display:.1f}FPS  {inference_ms:.0f}ms')
             else:
                 print(f'[{ts}] no detection  {fps_display:.1f}FPS  {inference_ms:.0f}ms')
         else:
-            frame = draw(frame, boxes, confidences, class_ids)
+            draw(frame, boxes, confidences, class_ids)
             cv2.putText(frame, f'{fps_display:.1f} FPS  |  {inference_ms:.0f} ms',
                         (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
             cv2.imshow('AutoWildLife', frame)
-
-            if is_image:
-                cv2.waitKey(0)
-                break
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
